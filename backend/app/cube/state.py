@@ -98,6 +98,11 @@ EDGE_IDS: list[int] = [i for i, f in enumerate(FACELETS) if f.kind == "edge"]
 SOLVED: tuple[int, ...] = tuple(range(N))
 
 
+def facelet_id(pos: Vec, normal: Vec) -> int:
+    """Engine facelet id for the sticker at cubie position ``pos`` with outward ``normal``."""
+    return _INDEX[(pos, normal)]
+
+
 def _base_move_perm(face: str) -> list[int]:
     """Destination permutation for a clockwise quarter turn of ``face``.
 
