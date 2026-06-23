@@ -1,0 +1,14 @@
+[project]
+name = "bld-trainer-backend"
+version = "0.1.0"
+description = "BLD Trainer backend — cube engine, tracer, validator, API"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
