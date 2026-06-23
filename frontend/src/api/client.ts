@@ -8,6 +8,10 @@ export interface ScrambleResponse {
   edge_buffer: string
 }
 
+export interface NetResponse {
+  net: Record<string, string[]>
+}
+
 export interface TraceResponse {
   corners: string[]
   edges: string[]
@@ -20,6 +24,18 @@ export interface ValidateResponse {
   edges_solved: boolean
 }
 
+export interface LetterLabel {
+  letter: string
+  piece: string
+  sticker: string
+}
+
+export interface SchemeResponse {
+  corners: LetterLabel[]
+  edges: LetterLabel[]
+  colors: string[]
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
@@ -30,8 +46,30 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T
 }
 
-export function getScramble(length = 20): Promise<ScrambleResponse> {
-  return postJson<ScrambleResponse>('/api/scramble', { length })
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(path)
+  if (!res.ok) throw new Error(`Request to ${path} failed (${res.status})`)
+  return (await res.json()) as T
+}
+
+export function getScheme(): Promise<SchemeResponse> {
+  return getJson<SchemeResponse>('/api/scheme')
+}
+
+export function getScramble(length: number, topColor: string, frontColor: string): Promise<ScrambleResponse> {
+  return postJson<ScrambleResponse>('/api/scramble', {
+    length,
+    top_color: topColor,
+    front_color: frontColor,
+  })
+}
+
+export function getNet(scramble: string[], topColor: string, frontColor: string): Promise<NetResponse> {
+  return postJson<NetResponse>('/api/net', {
+    scramble,
+    top_color: topColor,
+    front_color: frontColor,
+  })
 }
 
 export function getTrace(

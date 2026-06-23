@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  getNet,
   getScramble,
   getTrace,
   validateMemo,
-  type ScrambleResponse,
   type TraceResponse,
   type ValidateResponse,
 } from '../api/client'
 import { CubeNet } from '../cube/CubeNet'
+import type { Settings } from '../settings'
 
 // Keep only valid Speffz letters (A-X), uppercased, as a flat array.
 function parseLetters(input: string): string[] {
   return input.toUpperCase().replace(/[^A-X]/g, '').split('')
 }
 
-export function TypeLettersMode() {
-  const [scr, setScr] = useState<ScrambleResponse | null>(null)
+export function TypeLettersMode({ settings }: { settings: Settings }) {
+  const [scramble, setScramble] = useState<string[] | null>(null)
+  const [net, setNet] = useState<Record<string, string[]> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cornerInput, setCornerInput] = useState('')
   const [edgeInput, setEdgeInput] = useState('')
@@ -25,6 +27,7 @@ export function TypeLettersMode() {
   const [running, setRunning] = useState(false)
   const startRef = useRef(0)
   const cornerRef = useRef<HTMLInputElement>(null)
+  const scrambleRef = useRef<string[] | null>(null)
 
   useEffect(() => {
     if (!running) return
@@ -39,8 +42,10 @@ export function TypeLettersMode() {
     setCornerInput('')
     setEdgeInput('')
     try {
-      const s = await getScramble(20)
-      setScr(s)
+      const s = await getScramble(20, settings.topColor, settings.frontColor)
+      scrambleRef.current = s.scramble
+      setScramble(s.scramble)
+      setNet(s.net)
       startRef.current = performance.now()
       setElapsed(0)
       setRunning(true)
@@ -49,22 +54,33 @@ export function TypeLettersMode() {
       setError('Cannot reach the backend. Is the API server running on port 8000?')
       setRunning(false)
     }
-  }, [])
+  }, [settings.topColor, settings.frontColor])
 
+  // Fetch one scramble on mount.
   useEffect(() => {
     void newScramble()
-  }, [newScramble])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Recolor the current scramble's net when orientation changes (no new scramble).
+  useEffect(() => {
+    const scr = scrambleRef.current
+    if (!scr) return
+    getNet(scr, settings.topColor, settings.frontColor)
+      .then((r) => setNet(r.net))
+      .catch(() => {})
+  }, [settings.topColor, settings.frontColor])
 
   async function submit() {
-    if (!scr) return
+    if (!scramble) return
     setRunning(false)
     try {
       const v = await validateMemo(
-        scr.scramble,
+        scramble,
         parseLetters(cornerInput),
         parseLetters(edgeInput),
-        scr.corner_buffer,
-        scr.edge_buffer,
+        settings.cornerBuffer,
+        settings.edgeBuffer,
       )
       setResult(v)
     } catch {
@@ -73,9 +89,9 @@ export function TypeLettersMode() {
   }
 
   async function showAnswer() {
-    if (!scr) return
+    if (!scramble) return
     try {
-      setAnswer(await getTrace(scr.scramble, scr.corner_buffer, scr.edge_buffer))
+      setAnswer(await getTrace(scramble, settings.cornerBuffer, settings.edgeBuffer))
     } catch {
       setError('Trace request failed.')
     }
@@ -88,19 +104,17 @@ export function TypeLettersMode() {
           New scramble
         </button>
         <span className="timer">{elapsed.toFixed(1)}s</span>
-        {scr && (
-          <span className="buffers">
-            buffers — corner <b>{scr.corner_buffer}</b>, edge <b>{scr.edge_buffer}</b>
-          </span>
-        )}
+        <span className="buffers">
+          buffers — corner <b>{settings.cornerBuffer}</b>, edge <b>{settings.edgeBuffer}</b>
+        </span>
       </div>
 
       {error && <p className="error">{error}</p>}
 
-      {scr && (
+      {scramble && net && (
         <>
-          <p className="scramble">{scr.scramble.join(' ')}</p>
-          <CubeNet net={scr.net} />
+          <p className="scramble">{scramble.join(' ')}</p>
+          <CubeNet net={net} />
 
           <div className="inputs">
             <label>

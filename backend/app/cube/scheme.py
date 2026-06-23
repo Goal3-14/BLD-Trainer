@@ -66,3 +66,41 @@ EDGE_LETTER_BY_FACELET: dict[int, str] = {v: k for k, v in EDGE_FACELET_BY_LETTE
 # Orbit facelets in Speffz letter order (A..X) — used for deterministic cycle breaks.
 CORNER_FACELETS_IN_LETTER_ORDER: list[int] = [CORNER_FACELET_BY_LETTER[c] for c in LETTERS]
 EDGE_FACELETS_IN_LETTER_ORDER: list[int] = [EDGE_FACELET_BY_LETTER[c] for c in LETTERS]
+
+
+def _piece_name(pos: S.Vec) -> str:
+    """Human piece name from a cubie position, e.g. (1,1,1) -> 'UFR'."""
+    name = ""
+    if pos[1] > 0:
+        name += "U"
+    elif pos[1] < 0:
+        name += "D"
+    if pos[2] > 0:
+        name += "F"
+    elif pos[2] < 0:
+        name += "B"
+    if pos[0] > 0:
+        name += "R"
+    elif pos[0] < 0:
+        name += "L"
+    return name
+
+
+def _labels(facelet_by_letter: dict[str, int]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for letter in LETTERS:
+        fl = S.FACELETS[facelet_by_letter[letter]]
+        out.append({
+            "letter": letter,
+            "piece": _piece_name(fl.pos),
+            "sticker": S.NORMAL_TO_FACE[fl.normal],
+        })
+    return out
+
+
+def corner_labels() -> list[dict[str, str]]:
+    return _labels(CORNER_FACELET_BY_LETTER)
+
+
+def edge_labels() -> list[dict[str, str]]:
+    return _labels(EDGE_FACELET_BY_LETTER)
