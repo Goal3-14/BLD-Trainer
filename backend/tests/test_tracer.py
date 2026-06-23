@@ -69,6 +69,16 @@ def test_wrong_memo_fails():
     assert not solves(st, memo.corners, memo.edges[:-1])
 
 
+def test_memo_lengths_are_realistic():
+    # A shot places a whole piece, so memos stay short (corners ~8-11, edges
+    # ~11-13). Guards against regressing to a sticker-level model, which roughly
+    # doubled/tripled these (corners ~25, edges ~22).
+    for seed in range(300):
+        m = trace(S.scramble_state(generate_scramble(20, seed=seed)))
+        assert len(m.corners) <= 16
+        assert len(m.edges) <= 18
+
+
 def test_validate_reports_per_orbit():
     st = S.scramble_state(generate_scramble(20, seed=5))
     memo = trace(st)

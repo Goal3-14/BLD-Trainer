@@ -236,3 +236,52 @@ def permutation_parity(perm: list[int]) -> int:
             length += 1
         parity ^= (length - 1) & 1
     return parity
+
+
+# --- Cubie sticker ordering + piece swap (for piece-level BLD operations) -----
+
+def _dot3(a: Vec, b: Vec) -> int:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _cross3(a: Vec, b: Vec) -> Vec:
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
+
+
+def _cw_order(pos: Vec) -> tuple[int, ...]:
+    """A cubie's facelet ids. Corners: clockwise as seen from outside, so a
+    swap aligned by this order is a genuine piece rotation. Edges: the two
+    stickers (relative order is immaterial)."""
+    fids = _FACELETS_AT[pos]
+    if len(fids) == 2:
+        return tuple(fids)
+    a, b, c = fids
+    na, nb = FACELETS[a].normal, FACELETS[b].normal
+    # Want a->b clockwise viewed from outside: (na x nb) . pos < 0; else swap.
+    if _dot3(_cross3(na, nb), pos) > 0:
+        b, c = c, b
+    return (a, b, c)
+
+
+CUBIE_OF: list[Vec] = [f.pos for f in FACELETS]
+CUBIE_STICKERS: dict[Vec, tuple[int, ...]] = {
+    pos: _cw_order(pos) for pos in (CORNER_POS + EDGE_POS)
+}
+
+
+def piece_swap(w: list[int], buffer_fid: int, target_fid: int) -> None:
+    """The elementary BLD 'shot': swap the whole piece at the buffer with the
+    piece at the target sticker, aligning buffer->target and following each
+    cubie's sticker order. Moves all of a piece's stickers together with the
+    correct orientation, so one shot places a whole piece."""
+    b_order = CUBIE_STICKERS[CUBIE_OF[buffer_fid]]
+    t_order = CUBIE_STICKERS[CUBIE_OF[target_fid]]
+    bi = b_order.index(buffer_fid)
+    ti = t_order.index(target_fid)
+    n = len(b_order)
+    for k in range(n):
+        p = b_order[(bi + k) % n]
+        q = t_order[(ti + k) % n]
+        w[p], w[q] = w[q], w[p]

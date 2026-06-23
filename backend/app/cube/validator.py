@@ -2,9 +2,9 @@
 
 Validation is by *simulation*, not by string-matching against one "correct"
 answer: there is no single correct memo (it depends on buffer, cycle-break
-choices, and parity handling). We replay the memo as buffer-swaps on the
-scrambled state and check whether the cube ends solved. This works for any
-buffer/scheme and any valid tracing.
+choices, and parity handling). We replay the memo as piece swaps (the same
+elementary shot the tracer uses) on the scrambled state and check whether the
+cube ends solved. This works for any buffer/scheme and any valid tracing.
 """
 from __future__ import annotations
 
@@ -22,11 +22,10 @@ class Verdict:
     edges_solved: bool
 
 
-def _apply_swaps(w: list[int], buffer_fid: int, targets: list[str],
+def _apply_shots(w: list[int], buffer_fid: int, targets: list[str],
                  facelet_by_letter: dict[str, int]) -> None:
     for letter in targets:
-        t = facelet_by_letter[letter]
-        w[buffer_fid], w[t] = w[t], w[buffer_fid]
+        S.piece_swap(w, buffer_fid, facelet_by_letter[letter])
 
 
 def _orbit_solved(w: list[int], orbit_ids: list[int]) -> bool:
@@ -37,9 +36,9 @@ def validate(state: tuple[int, ...], corner_targets: list[str], edge_targets: li
              corner_buffer: str = DEFAULT_CORNER_BUFFER,
              edge_buffer: str = DEFAULT_EDGE_BUFFER) -> Verdict:
     w = list(state)
-    _apply_swaps(w, SC.CORNER_FACELET_BY_LETTER[corner_buffer],
+    _apply_shots(w, SC.CORNER_FACELET_BY_LETTER[corner_buffer],
                  corner_targets, SC.CORNER_FACELET_BY_LETTER)
-    _apply_swaps(w, SC.EDGE_FACELET_BY_LETTER[edge_buffer],
+    _apply_shots(w, SC.EDGE_FACELET_BY_LETTER[edge_buffer],
                  edge_targets, SC.EDGE_FACELET_BY_LETTER)
     corners_ok = _orbit_solved(w, S.CORNER_IDS)
     edges_ok = _orbit_solved(w, S.EDGE_IDS)

@@ -1,15 +1,16 @@
 """Tracer — turn a scrambled state into a Speffz memo (letter sequences).
 
-The tracer is a buffer-swap solving *simulation*: starting from the buffer
-sticker, repeatedly send the sticker currently in the buffer to its home
-(recording that home's letter), swapping it in. When the buffer is solved but
-pieces remain, "break" into the lowest-letter unsolved sticker and continue.
+A BLD "shot" places a whole *piece*: from the buffer sticker, send the piece
+currently in the buffer to the home of the sticker it shows (recording that
+home's letter) via a piece swap, which moves all of the piece's stickers
+together with the correct orientation. When the buffer piece is solved (or
+stuck twisted in place) but pieces remain, break into the lowest-letter
+unsolved piece on another cubie.
 
-Because ``validator.solves`` replays the identical swap semantics, a memo
-produced here is guaranteed to validate as solved. Cycle breaks, an
-already-solved buffer, and in-place flips/twists all emerge naturally from the
-sticker-permutation model (a twist/flip simply leaves multiple stickers of one
-piece unsolved).
+``validator.validate`` replays the identical piece swaps, so a memo produced
+here validates as solved by construction. One shot per piece keeps memos at
+realistic lengths (corners ~8-11, edges ~11-13), and orientation (twists/flips)
+is handled because the piece carries its stickers with it.
 """
 from __future__ import annotations
 
@@ -40,23 +41,35 @@ def _trace_orbit(state: tuple[int, ...], ordered_facelets: list[int],
                  buffer_fid: int, letter_by_facelet: dict[int, str]) -> list[str]:
     w = list(state)
     targets: list[str] = []
-    max_steps = len(ordered_facelets) * 3 + 10
+    buffer_cubie = S.CUBIE_OF[buffer_fid]
+    buffer_stickers = S.CUBIE_STICKERS[buffer_cubie]
 
-    def first_unsolved() -> int | None:
+    def buffer_solved() -> bool:
+        return all(w[f] == f for f in buffer_stickers)
+
+    def first_unsolved_other() -> int | None:
         for p in ordered_facelets:
-            if p != buffer_fid and w[p] != p:
+            if S.CUBIE_OF[p] != buffer_cubie and w[p] != p:
                 return p
         return None
 
+    max_steps = len(ordered_facelets) * 3 + 20
     for _ in range(max_steps + 1):
-        if w[buffer_fid] == buffer_fid:
-            target = first_unsolved()
+        if buffer_solved():
+            target = first_unsolved_other()
             if target is None:
                 return targets  # orbit solved
         else:
-            target = w[buffer_fid]
+            shown = w[buffer_fid]
+            if S.CUBIE_OF[shown] == buffer_cubie:
+                # Buffer piece is home but twisted -> break out to resolve it.
+                target = first_unsolved_other()
+                if target is None:
+                    return targets
+            else:
+                target = shown  # home of the sticker shown in the buffer
         targets.append(letter_by_facelet[target])
-        w[buffer_fid], w[target] = w[target], w[buffer_fid]
+        S.piece_swap(w, buffer_fid, target)
 
     raise RuntimeError("tracer did not converge")  # pragma: no cover
 
