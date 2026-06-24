@@ -8,14 +8,14 @@ import {
   type ValidateResponse,
 } from '../api/client'
 import { CubeNet } from '../cube/CubeNet'
-import type { Settings } from '../settings'
+import type { ModeProps } from './types'
 
 // Keep only valid Speffz letters (A-X), uppercased, as a flat array.
 function parseLetters(input: string): string[] {
   return input.toUpperCase().replace(/[^A-X]/g, '').split('')
 }
 
-export function TypeLettersMode({ settings }: { settings: Settings }) {
+export function TypeLettersMode({ settings }: ModeProps) {
   const [scramble, setScramble] = useState<string[] | null>(null)
   const [net, setNet] = useState<Record<string, string[]> | null>(null)
   const [error, setError] = useState<string | null>(null)
