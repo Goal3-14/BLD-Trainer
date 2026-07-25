@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import type { ImageMap } from '../api/images'
 import type { Lexicon } from '../lexicon'
 import type { Settings } from '../settings'
 
@@ -7,6 +8,9 @@ export interface ModeProps {
   settings: Settings
   lexicon: Lexicon
   updateLexicon: (lexicon: Lexicon) => void
+  images: ImageMap
+  imagesVersion: number
+  refreshImages: () => void
 }
 
 // A mode is just a titled component over the shared core, so new modes slot in

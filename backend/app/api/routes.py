@@ -1,6 +1,8 @@
-"""API routes: health, scheme, scramble, net, trace, validate."""
-from fastapi import APIRouter
+"""API routes: health, scheme, scramble, net, trace, validate, images."""
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
+from app import images as IMG
 from app.cube import scheme as SC
 from app.cube import state as S
 from app.cube.net import COLORS, face_colors, net_colors
@@ -61,6 +63,50 @@ def post_trace(req: TraceRequest) -> TraceResponse:
     state = S.scramble_state(req.scramble)
     memo = trace(state, req.corner_buffer, req.edge_buffer)
     return TraceResponse(corners=memo.corners, edges=memo.edges, parity=memo.parity)
+
+
+# --- Letter-pair images ------------------------------------------------------
+
+
+def _check_pair(pair: str) -> str:
+    p = pair.upper()
+    if not IMG.PAIR_RE.match(p):
+        raise HTTPException(status_code=400, detail="pair must be two letters A-X")
+    return p
+
+
+@router.get("/images")
+def get_images() -> dict[str, dict[str, str]]:
+    return {"images": IMG.list_images()}
+
+
+@router.get("/images/{pair}")
+def get_image(pair: str) -> FileResponse:
+    path = IMG.find_image(_check_pair(pair))
+    if path is None:
+        raise HTTPException(status_code=404, detail="no image for this pair")
+    ext = path.suffix.lower().lstrip(".")
+    return FileResponse(path, media_type=IMG.MEDIA_TYPES[ext])
+
+
+@router.put("/images/{pair}")
+async def put_image(pair: str, request: Request, ext: str | None = None) -> dict[str, str]:
+    p = _check_pair(pair)
+    chosen = IMG.normalize_ext(ext, request.headers.get("content-type"))
+    if chosen is None:
+        raise HTTPException(status_code=415, detail="unsupported image type")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty body")
+    if len(data) > IMG.MAX_BYTES:
+        raise HTTPException(status_code=413, detail="image too large (10 MB max)")
+    filename = IMG.save_image(p, data, chosen)
+    return {"pair": p, "filename": filename}
+
+
+@router.delete("/images/{pair}")
+def del_image(pair: str) -> dict[str, bool]:
+    return {"deleted": IMG.delete_image(_check_pair(pair))}
 
 
 @router.post("/validate", response_model=ValidateResponse)

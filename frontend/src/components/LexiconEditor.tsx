@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { deleteImage, imageFromDataTransfer, imageUrl, uploadImage } from '../api/images'
 import {
   EXAMPLE_LEXICON,
   entryList,
@@ -8,10 +9,17 @@ import {
   type PairEntry,
 } from '../lexicon'
 import type { ModeProps } from '../modes/types'
+import { ImageDrop } from './ImageDrop'
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWX'.split('')
 
-export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
+export function LexiconEditor({
+  lexicon,
+  updateLexicon,
+  images,
+  imagesVersion,
+  refreshImages,
+}: ModeProps) {
   const [pair, setPair] = useState('')
   const [word, setWord] = useState('')
   const [ideas, setIdeas] = useState('')
@@ -20,8 +28,15 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
   const [msg, setMsg] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [letter, setLetter] = useState<string | null>(null)
+  const [dropPair, setDropPair] = useState<string | null>(null)
 
-  const all = entryList(lexicon)
+  // Table rows: lexicon entries plus image-only pairs (image uploaded, no words yet).
+  const all: PairEntry[] = [
+    ...entryList(lexicon),
+    ...Object.keys(images)
+      .filter((p) => !(p in lexicon.entries))
+      .map((p): PairEntry => ({ pair: p, word: '', ideas: [] })),
+  ].sort((a, b) => a.pair.localeCompare(b.pair))
   const usedLetters = new Set(all.map((e) => e.pair[0]))
   const q = query.trim().toLowerCase()
   const list = all.filter((e) => {
@@ -71,6 +86,41 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
     setMsg(`Editing ${e.pair}.`)
   }
 
+  async function uploadFor(p: string, f: File | Blob) {
+    try {
+      await uploadImage(p, f)
+      refreshImages()
+      setMsg(`Image saved for ${p}.`)
+    } catch (err) {
+      setMsg('Image upload failed: ' + (err as Error).message)
+    }
+  }
+
+  // Paste an image anywhere in this tab to attach it to the pair currently in
+  // the form. Pastes aimed at text fields (with text content) pass through,
+  // except the pair box itself, where an image paste is clearly an upload.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (e.defaultPrevented) return // ImageDrop already handled it
+      const t = e.target as HTMLElement | null
+      const isField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+      const isPairBox = t?.classList.contains('pair-input')
+      if (isField && !isPairBox && e.clipboardData?.getData('text')) return
+      const f = imageFromDataTransfer(e.clipboardData)
+      if (!f) return
+      const p = normalizePair(pair)
+      if (p.length !== 2) {
+        setMsg('Type or search a two-letter pair before pasting an image.')
+        return
+      }
+      e.preventDefault()
+      void uploadFor(p, f)
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pair, lexicon])
+
   function onSearchChange(v: string) {
     setQuery(v)
     const t = v.trim().toUpperCase()
@@ -91,6 +141,9 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
     const next = { ...lexicon.entries }
     delete next[p]
     updateLexicon({ entries: next })
+    if (p in images) {
+      void deleteImage(p).then(refreshImages, () => {})
+    }
     setMsg(`Deleted ${p}.`)
   }
 
@@ -166,6 +219,13 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
         <button type="button" onClick={saveEntry}>
           Save
         </button>
+        <ImageDrop
+          pair={normalizePair(pair)}
+          images={images}
+          imagesVersion={imagesVersion}
+          refreshImages={refreshImages}
+          onStatus={setMsg}
+        />
       </div>
 
       {all.length > 0 && (
@@ -206,6 +266,7 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
           <thead>
             <tr>
               <th>Pair</th>
+              <th>Img</th>
               <th>Word</th>
               <th>Ideas</th>
               <th></th>
@@ -213,8 +274,29 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
           </thead>
           <tbody>
             {list.map((e) => (
-              <tr key={e.pair}>
+              <tr
+                key={e.pair}
+                className={dropPair === e.pair ? 'drop-target' : ''}
+                onDragOver={(ev) => {
+                  if (ev.dataTransfer.types.includes('Files')) {
+                    ev.preventDefault()
+                    setDropPair(e.pair)
+                  }
+                }}
+                onDragLeave={() => setDropPair((d) => (d === e.pair ? null : d))}
+                onDrop={(ev) => {
+                  ev.preventDefault()
+                  setDropPair(null)
+                  const f = imageFromDataTransfer(ev.dataTransfer)
+                  if (f) void uploadFor(e.pair, f)
+                }}
+              >
                 <td className="mono">{e.pair}</td>
+                <td className="thumb-cell">
+                  {e.pair in images && (
+                    <img className="thumb" src={imageUrl(e.pair, imagesVersion)} alt={e.pair} />
+                  )}
+                </td>
                 <td>{e.word}</td>
                 <td className="ideas">{e.ideas.join(', ')}</td>
                 <td className="row-actions">

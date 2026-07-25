@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { getScheme, type SchemeResponse } from './api/client'
+import { listImages, type ImageMap } from './api/images'
 import { SettingsPanel } from './components/SettingsPanel'
 import { loadLexicon, saveLexicon, type Lexicon } from './lexicon'
 import { MODES } from './modes/registry'
@@ -15,6 +16,21 @@ function App() {
   const [activeId, setActiveId] = useState<string>(
     () => localStorage.getItem(MODE_KEY) ?? MODES[0].id,
   )
+  const [images, setImages] = useState<ImageMap>({})
+  const [imagesVersion, setImagesVersion] = useState(0)
+
+  const refreshImages = useCallback(() => {
+    listImages()
+      .then((m) => {
+        setImages(m)
+        setImagesVersion((v) => v + 1)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    refreshImages()
+  }, [refreshImages])
 
   useEffect(() => {
     saveSettings(settings)
@@ -66,7 +82,14 @@ function App() {
         <SettingsPanel settings={settings} scheme={scheme} onChange={updateSettings} />
       )}
 
-      <Active settings={settings} lexicon={lexicon} updateLexicon={setLexicon} />
+      <Active
+        settings={settings}
+        lexicon={lexicon}
+        updateLexicon={setLexicon}
+        images={images}
+        imagesVersion={imagesVersion}
+        refreshImages={refreshImages}
+      />
     </main>
   )
 }
