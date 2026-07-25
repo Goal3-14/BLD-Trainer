@@ -51,3 +51,6 @@ desktop.ini
 
 # ---- Logs ----
 *.log
+
+# ---- User data (letter-pair images, stats) ----
+backend/data/
