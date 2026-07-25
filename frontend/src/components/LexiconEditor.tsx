@@ -9,6 +9,8 @@ import {
 } from '../lexicon'
 import type { ModeProps } from '../modes/types'
 
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWX'.split('')
+
 export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
   const [pair, setPair] = useState('')
   const [word, setWord] = useState('')
@@ -16,8 +18,22 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
   const [notes, setNotes] = useState('')
   const [imp, setImp] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [letter, setLetter] = useState<string | null>(null)
 
-  const list = entryList(lexicon)
+  const all = entryList(lexicon)
+  const usedLetters = new Set(all.map((e) => e.pair[0]))
+  const q = query.trim().toLowerCase()
+  const list = all.filter((e) => {
+    if (letter && e.pair[0] !== letter) return false
+    if (!q) return true
+    return (
+      e.pair.toLowerCase().includes(q) ||
+      e.word.toLowerCase().includes(q) ||
+      e.ideas.some((i) => i.toLowerCase().includes(q)) ||
+      (e.notes ?? '').toLowerCase().includes(q)
+    )
+  })
   const csv = toCSV(lexicon)
 
   function resetForm() {
@@ -53,6 +69,22 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
     setIdeas(e.ideas.join(', '))
     setNotes(e.notes ?? '')
     setMsg(`Editing ${e.pair}.`)
+  }
+
+  function onSearchChange(v: string) {
+    setQuery(v)
+    const t = v.trim().toUpperCase()
+    if (!/^[A-X]{2}$/.test(t)) return
+    const entry = lexicon.entries[t]
+    if (entry) {
+      editEntry(entry)
+    } else {
+      setPair(t)
+      setWord('')
+      setIdeas('')
+      setNotes('')
+      setMsg(`No entry for ${t} yet — fill in the form to add it.`)
+    }
   }
 
   function deleteEntry(p: string) {
@@ -103,7 +135,9 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
   return (
     <section className="mode editor">
       <div className="mode-bar">
-        <strong>{list.length} pairs</strong>
+        <strong>
+          {list.length === all.length ? `${all.length} pairs` : `${list.length} / ${all.length} pairs`}
+        </strong>
         <button type="button" className="secondary" onClick={loadExamples}>
           Load examples
         </button>
@@ -133,6 +167,39 @@ export function LexiconEditor({ lexicon, updateLexicon }: ModeProps) {
           Save
         </button>
       </div>
+
+      {all.length > 0 && (
+        <div className="list-tools">
+          <input
+            className="search"
+            value={query}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search pair, word, ideas…"
+          />
+          <div className="letter-filter">
+            <button
+              type="button"
+              className={letter === null ? 'active' : ''}
+              onClick={() => setLetter(null)}
+            >
+              All
+            </button>
+            {LETTERS.map((l) => (
+              <button
+                key={l}
+                type="button"
+                className={letter === l ? 'active' : ''}
+                disabled={!usedLetters.has(l) && letter !== l}
+                onClick={() => setLetter(letter === l ? null : l)}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {all.length > 0 && list.length === 0 && <p className="note">No pairs match.</p>}
 
       {list.length > 0 && (
         <table className="entries">
