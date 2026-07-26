@@ -9,6 +9,7 @@ import {
   type PairEntry,
 } from '../lexicon'
 import type { ModeProps } from '../modes/types'
+import { blobToDataUrl, buildSheetHtml, type SheetCard } from '../sheetExport'
 import { ImageDrop } from './ImageDrop'
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWX'.split('')
@@ -29,6 +30,7 @@ export function LexiconEditor({
   const [query, setQuery] = useState('')
   const [letter, setLetter] = useState<string | null>(null)
   const [dropPair, setDropPair] = useState<string | null>(null)
+  const [exportIdeas, setExportIdeas] = useState(false)
 
   // Table rows: lexicon entries plus image-only pairs (image uploaded, no words yet).
   const all: PairEntry[] = [
@@ -168,6 +170,33 @@ export function LexiconEditor({
     setMsg('Loaded example pairs.')
   }
 
+  async function exportSheet() {
+    setMsg('Building sheet…')
+    const cards: SheetCard[] = await Promise.all(
+      all.map(async (e) => {
+        let dataUri: string | null = null
+        if (e.pair in images) {
+          try {
+            const res = await fetch(imageUrl(e.pair, imagesVersion))
+            if (res.ok) dataUri = await blobToDataUrl(await res.blob())
+          } catch {
+            /* export the card without its image */
+          }
+        }
+        return { ...e, ideas: exportIdeas ? e.ideas : [], dataUri }
+      }),
+    )
+    const html = buildSheetHtml(cards, 'BLD Letter Pairs')
+    const blob = new Blob([html], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'bld-letter-pair-sheet.html'
+    a.click()
+    URL.revokeObjectURL(url)
+    setMsg(`Exported sheet with ${cards.length} pairs. Open it in a browser; print for PDF.`)
+  }
+
   function copyCsv() {
     navigator.clipboard?.writeText(csv).then(
       () => setMsg('CSV copied to clipboard.'),
@@ -194,6 +223,17 @@ export function LexiconEditor({
         <button type="button" className="secondary" onClick={loadExamples}>
           Load examples
         </button>
+        <button type="button" className="secondary" onClick={() => void exportSheet()}>
+          Export sheet
+        </button>
+        <label className="count">
+          <input
+            type="checkbox"
+            checked={exportIdeas}
+            onChange={(e) => setExportIdeas(e.target.checked)}
+          />
+          alt ideas
+        </label>
       </div>
       {msg && <p className="note">{msg}</p>}
 
