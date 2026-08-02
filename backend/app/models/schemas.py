@@ -62,6 +62,9 @@ class _Oriented(BaseModel):
 
 class ScrambleRequest(_Oriented):
     length: int = 20
+    # Moves already on the cube. When set, the new scramble continues from that
+    # state instead of from solved, so the solver need not reset between reps.
+    prefix: list[str] = []
     corner_buffer: str = DEFAULT_CORNER_BUFFER
     edge_buffer: str = DEFAULT_EDGE_BUFFER
 
@@ -72,6 +75,11 @@ class ScrambleRequest(_Oriented):
             raise ValueError("length must be between 1 and 40")
         return v
 
+    @field_validator("prefix")
+    @classmethod
+    def _check_prefix(cls, v: list[str]) -> list[str]:
+        return _validate_moves(v)
+
     @field_validator("corner_buffer", "edge_buffer")
     @classmethod
     def _check_buffer(cls, v: str) -> str:
@@ -79,7 +87,8 @@ class ScrambleRequest(_Oriented):
 
 
 class ScrambleResponse(BaseModel):
-    scramble: list[str]
+    scramble: list[str]  # the new moves to apply now
+    full: list[str]  # prefix + scramble: the whole sequence from solved
     net: dict[str, list[str]]
     corner_buffer: str
     edge_buffer: str

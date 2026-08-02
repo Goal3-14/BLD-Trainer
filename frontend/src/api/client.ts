@@ -2,7 +2,8 @@
 // frontend only sends/receives plain data.
 
 export interface ScrambleResponse {
-  scramble: string[]
+  scramble: string[] // the new moves to apply now
+  full: string[] // prefix + scramble: the whole sequence from solved
   net: Record<string, string[]>
   corner_buffer: string
   edge_buffer: string
@@ -56,9 +57,17 @@ export function getScheme(): Promise<SchemeResponse> {
   return getJson<SchemeResponse>('/api/scheme')
 }
 
-export function getScramble(length: number, topColor: string, frontColor: string): Promise<ScrambleResponse> {
+// `prefix` = moves already on the cube. Pass it to continue scrambling from the
+// current state instead of from solved.
+export function getScramble(
+  length: number,
+  topColor: string,
+  frontColor: string,
+  prefix: string[] = [],
+): Promise<ScrambleResponse> {
   return postJson<ScrambleResponse>('/api/scramble', {
     length,
+    prefix,
     top_color: topColor,
     front_color: frontColor,
   })

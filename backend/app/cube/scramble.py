@@ -13,11 +13,19 @@ _AXIS = {"U": "y", "D": "y", "R": "x", "L": "x", "F": "z", "B": "z"}
 _MODIFIERS = ["", "'", "2"]
 
 
-def generate_scramble(length: int = 20, seed: int | None = None) -> list[str]:
-    """Return a list of move tokens (e.g. ["R", "U'", "F2", ...])."""
+def generate_scramble(
+    length: int = 20, seed: int | None = None, prefix: list[str] | None = None
+) -> list[str]:
+    """Return `length` new move tokens (e.g. ["R", "U'", "F2", ...]).
+
+    `prefix` is a sequence the new moves will be appended to (i.e. moves already
+    applied to the cube). It is not included in the result, but its trailing
+    faces seed the redundancy filter so the join is clean — no repeated face and
+    no three-on-an-axis across the seam.
+    """
     rng = random.Random(seed)
     moves: list[str] = []
-    faces: list[str] = []
+    faces: list[str] = [tok[0] for tok in (prefix or [])]
     while len(moves) < length:
         face = rng.choice(FACES)
         if faces and face == faces[-1]:

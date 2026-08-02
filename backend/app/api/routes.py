@@ -40,11 +40,13 @@ def get_scheme() -> SchemeResponse:
 
 @router.post("/scramble", response_model=ScrambleResponse)
 def post_scramble(req: ScrambleRequest) -> ScrambleResponse:
-    moves = generate_scramble(length=req.length)
-    state = S.scramble_state(moves)
+    moves = generate_scramble(length=req.length, prefix=req.prefix)
+    full = req.prefix + moves
+    state = S.scramble_state(full)
     fc = face_colors(req.top_color, req.front_color)
     return ScrambleResponse(
         scramble=moves,
+        full=full,
         net=net_colors(state, fc),
         corner_buffer=req.corner_buffer,
         edge_buffer=req.edge_buffer,

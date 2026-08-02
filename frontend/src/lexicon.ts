@@ -46,6 +46,28 @@ export function entryList(lexicon: Lexicon): PairEntry[] {
   return Object.values(lexicon.entries).sort((a, b) => a.pair.localeCompare(b.pair))
 }
 
+// Reverse index for answering with words instead of letters: each word and idea
+// (lowercased) maps to its pair. Built from the sorted entry list so a word used
+// by two pairs resolves to the alphabetically first one, whatever the key order.
+export function wordIndex(lexicon: Lexicon): Record<string, string> {
+  const index: Record<string, string> = {}
+  for (const e of entryList(lexicon)) {
+    for (const w of [e.word, ...e.ideas]) {
+      const key = w.trim().toLowerCase()
+      if (key && !(key in index)) index[key] = e.pair
+    }
+  }
+  return index
+}
+
+// Chunk a flat target list into pairs. An odd count (parity) leaves a lone
+// letter as the last chunk.
+export function chunkPairs(letters: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < letters.length; i += 2) out.push(letters.slice(i, i + 2).join(''))
+  return out
+}
+
 // --- CSV / JSON import-export -------------------------------------------------
 
 function csvCell(s: string): string {

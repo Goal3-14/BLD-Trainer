@@ -58,6 +58,13 @@
   margin: 0;
 }
 
+.scramble-note {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  text-align: center;
+  margin: -0.6rem 0 0;
+}
+
 .inputs {
   display: flex;
   gap: 1rem;
@@ -87,6 +94,14 @@
   color: inherit;
 }
 
+/* Words are prose, not target letters: no uppercasing or letter tracking. */
+.inputs input.words {
+  font-family: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  min-width: 20rem;
+}
+
 .actions {
   display: flex;
   gap: 0.75rem;
@@ -106,6 +121,11 @@ button.secondary {
   background: transparent;
   border-color: #888;
   color: inherit;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .result {
@@ -130,6 +150,13 @@ button.secondary {
 
 .answer-label {
   opacity: 0.6;
+}
+
+.answer-words {
+  font-family: inherit;
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-bottom: 0.3rem;
 }
 
 .answer .parity {

@@ -14,6 +14,37 @@ def test_scramble_shape():
     for face, cells in body["net"].items():
         assert len(cells) == 9
     assert body["corner_buffer"] and body["edge_buffer"]
+    assert body["full"] == body["scramble"]  # no prefix -> full sequence is the scramble
+
+
+def test_scramble_with_prefix_continues_from_that_state():
+    first = client.post("/api/scramble", json={"length": 20}).json()
+    second = client.post(
+        "/api/scramble", json={"length": 20, "prefix": first["full"]}
+    ).json()
+    assert len(second["scramble"]) == 20  # only the new moves to apply
+    assert second["full"] == first["full"] + second["scramble"]
+    # The net must show the continued state, not a fresh 20-move scramble.
+    net = client.post("/api/net", json={"scramble": second["full"]}).json()["net"]
+    assert second["net"] == net
+
+
+def test_continued_scramble_roundtrips():
+    # A chain of "next scramble" reps must stay traceable/validatable throughout.
+    full: list[str] = []
+    for _ in range(4):
+        full = client.post("/api/scramble", json={"length": 20, "prefix": full}).json()["full"]
+        tr = client.post("/api/trace", json={"scramble": full}).json()
+        v = client.post(
+            "/api/validate",
+            json={"scramble": full, "corner_targets": tr["corners"], "edge_targets": tr["edges"]},
+        ).json()
+        assert v["solved"] is True
+
+
+def test_scramble_rejects_a_bad_prefix():
+    r = client.post("/api/scramble", json={"length": 20, "prefix": ["R", "nope"]})
+    assert r.status_code == 422
 
 
 def test_full_api_roundtrip():
