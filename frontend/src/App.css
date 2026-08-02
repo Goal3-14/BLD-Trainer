@@ -246,7 +246,7 @@ button:disabled {
   }
 
   .drill-row {
-    grid-template-columns: 5.5rem 1fr;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
   }
 
   .drill-row .expected {
@@ -278,6 +278,7 @@ button:disabled {
 
 .io-block textarea {
   width: 100%;
+  box-sizing: border-box; /* else the padding and border spill past the edge */
   font-family: ui-monospace, monospace;
   font-size: 0.9rem;
   padding: 0.5rem;
@@ -340,7 +341,10 @@ button:disabled {
 
 .drill-row {
   display: grid;
-  grid-template-columns: 7rem 1fr auto;
+  /* minmax(0, 1fr), not 1fr: a bare 1fr can't shrink below the input's own
+     intrinsic width, and that floor propagates up to .app and scrolls the
+     whole page sideways on a phone. */
+  grid-template-columns: 7rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.6rem;
 }
@@ -358,6 +362,8 @@ button:disabled {
   border: 1px solid #888;
   background: transparent;
   color: inherit;
+  box-sizing: border-box;
+  min-width: 0; /* grid items default to min-width:auto, which won't shrink */
 }
 
 .drill-row input.ok {
