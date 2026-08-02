@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { getScheme, type SchemeResponse } from './api/client'
 import { listImages, type ImageMap } from './api/images'
+import { DRILLS_ONLY } from './build'
 import { SettingsPanel } from './components/SettingsPanel'
 import { loadLexicon, saveLexicon, type Lexicon } from './lexicon'
 import { MODES } from './modes/registry'
@@ -19,7 +20,10 @@ function App() {
   const [images, setImages] = useState<ImageMap>({})
   const [imagesVersion, setImagesVersion] = useState(0)
 
+  // The phone build has no backend to ask, so it skips the image and scheme
+  // lookups entirely rather than firing requests that can only fail.
   const refreshImages = useCallback(() => {
+    if (DRILLS_ONLY) return
     listImages()
       .then((m) => {
         setImages(m)
@@ -49,6 +53,7 @@ function App() {
   }, [activeId])
 
   useEffect(() => {
+    if (DRILLS_ONLY) return
     getScheme()
       .then(setScheme)
       .catch(() => {})
@@ -62,7 +67,9 @@ function App() {
     <main className="app">
       <header className="app-header">
         <h1>BLD Trainer</h1>
-        <p className="subtitle">Blindfolded solving — memorization &amp; tracing</p>
+        <p className="subtitle">
+          {DRILLS_ONLY ? 'Letter-pair practice' : 'Blindfolded solving — memorization & tracing'}
+        </p>
       </header>
 
       <nav className="tabs">

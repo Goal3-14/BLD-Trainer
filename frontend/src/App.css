@@ -234,6 +234,65 @@ button:disabled {
   opacity: 1;
 }
 
+/* Narrow screens (the phone build's home turf): tighten the chrome and let a
+   drill row's expected answer wrap under the input instead of squeezing it. */
+@media (max-width: 480px) {
+  .app {
+    margin: 1rem auto;
+  }
+
+  .app-header {
+    margin-bottom: 1rem;
+  }
+
+  .drill-row {
+    grid-template-columns: 5.5rem 1fr;
+  }
+
+  .drill-row .expected {
+    grid-column: 2;
+  }
+
+  .tabs {
+    gap: 0.35rem;
+  }
+}
+
+/* Phone build: paste-in-your-list screen */
+.sheet-import {
+  width: 100%;
+  max-width: 560px;
+}
+
+.sheet-import .pair-count {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.io-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.io-block textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  border: 1px solid #888;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  resize: vertical;
+}
+
+.io-msg {
+  margin: 0;
+  font-weight: 500;
+}
+
 /* Drill modes */
 .count {
   display: inline-flex;
