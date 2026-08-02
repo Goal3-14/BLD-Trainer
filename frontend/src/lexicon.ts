@@ -82,7 +82,20 @@ export function toCSV(lexicon: Lexicon): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\n')
 }
 
-function parseCSV(text: string): string[][] {
+// A pasted list is not always comma-separated: copying out of a spreadsheet
+// gives tabs, and Excel in some locales exports semicolons. Guessing from the
+// first non-blank line beats silently reading the whole line as the pair —
+// which still yields a valid-looking pair (the first two A-X letters) but no
+// word, so the drills end up empty while the import claims success.
+function detectDelimiter(text: string): string {
+  const first = text.split(/\r?\n/).find((l) => l.trim()) ?? ''
+  for (const d of ['\t', ',', ';']) {
+    if (first.includes(d)) return d
+  }
+  return ','
+}
+
+function parseCSV(text: string, delim: string): string[][] {
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -102,7 +115,7 @@ function parseCSV(text: string): string[][] {
       }
     } else if (c === '"') {
       inQuotes = true
-    } else if (c === ',') {
+    } else if (c === delim) {
       row.push(field)
       field = ''
     } else if (c === '\n') {
@@ -122,8 +135,17 @@ function parseCSV(text: string): string[][] {
 }
 
 export function fromCSV(text: string): Lexicon {
-  const rows = parseCSV(text).filter((r) => r.some((c) => c.trim() !== ''))
+  let rows = parseCSV(text, detectDelimiter(text)).filter((r) => r.some((c) => c.trim() !== ''))
   if (!rows.length) return EMPTY_LEXICON
+  // No delimiter anywhere: accept a plain "AB word" list, splitting off the
+  // leading pair and keeping the rest of the line as the word (which may
+  // itself contain spaces).
+  if (rows.every((r) => r.length === 1)) {
+    rows = rows.map((r) => {
+      const m = /^\s*([A-Xa-x]{2})[\s.:-]+(.+)$/.exec(r[0])
+      return m ? [m[1], m[2]] : r
+    })
+  }
   const start = rows[0][0]?.trim().toLowerCase() === 'pair' ? 1 : 0
   const entries: Record<string, PairEntry> = {}
   for (let i = start; i < rows.length; i++) {

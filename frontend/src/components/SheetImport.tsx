@@ -9,7 +9,9 @@ export function SheetImport({ lexicon, updateLexicon }: ModeProps) {
   const [msg, setMsg] = useState<string | null>(null)
   const [showExport, setShowExport] = useState(false)
 
-  const count = entryList(lexicon).length
+  const all = entryList(lexicon)
+  const count = all.length
+  const usable = all.filter((e) => e.word).length // what the drills can actually use
   const csv = toCSV(lexicon)
 
   function doImport(replace: boolean) {
@@ -23,7 +25,19 @@ export function SheetImport({ lexicon, updateLexicon }: ModeProps) {
       updateLexicon({
         entries: replace ? imported.entries : { ...lexicon.entries, ...imported.entries },
       })
-      setMsg(`Imported ${n} pairs (${replace ? 'replaced everything' : 'merged'}).`)
+      // The drills only use pairs that have a word, so a list that imported
+      // "successfully" with no words at all leaves every drill empty. Say so
+      // here rather than letting the other tabs look broken.
+      const withWord = Object.values(imported.entries).filter((e) => e.word).length
+      const how = replace ? 'replaced everything' : 'merged'
+      setMsg(
+        withWord === 0
+          ? `Imported ${n} pairs, but none of them have a word, so the drills will be empty. ` +
+            `Each line needs the pair and the word together — "AB,abbey" or "AB abbey".`
+          : withWord < n
+            ? `Imported ${n} pairs (${how}); ${withWord} have words and will show up in drills.`
+            : `Imported ${n} pairs (${how}).`,
+      )
       setImp('')
     } catch (e) {
       setMsg('Import failed: ' + (e as Error).message)
@@ -45,11 +59,18 @@ export function SheetImport({ lexicon, updateLexicon }: ModeProps) {
         {count ? (
           <>
             <b>{count}</b> pairs saved on this device
+            {usable < count && <>, {usable} with words</>}
           </>
         ) : (
           <>No pairs on this device yet</>
         )}
       </p>
+      {count > 0 && usable === 0 && (
+        <p className="error">
+          None of these have a word attached, so the drills have nothing to ask you. Re-paste
+          your list with the pair and word on the same line.
+        </p>
+      )}
 
       <div className="io-block">
         <p className="io-label">Paste your list from the desktop app (CSV or JSON)</p>
