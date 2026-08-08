@@ -258,6 +258,67 @@ button:disabled {
   }
 }
 
+/* Memo & Recall: the pairs are the whole screen while they are visible. */
+.memo-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 9rem;
+  width: 100%;
+}
+
+.memo-pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: center;
+}
+
+.memo-pair {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 1.8rem;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+.memo-pair.solo {
+  font-size: 4rem;
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.mark {
+  font-family: ui-monospace, monospace;
+  border: 1px solid;
+  border-radius: 6px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.95rem;
+}
+
+.mark.ok {
+  color: #2e7d32;
+  border-color: #2e7d3288;
+}
+
+.mark.bad {
+  color: #c62828;
+  border-color: #c6282888;
+}
+
+/* What you typed there instead, when it differs. */
+.mark.bad em {
+  font-style: normal;
+  opacity: 0.75;
+  margin-left: 0.35rem;
+  text-decoration: line-through;
+}
+
 /* Phone build: paste-in-your-list screen */
 .sheet-import {
   width: 100%;
