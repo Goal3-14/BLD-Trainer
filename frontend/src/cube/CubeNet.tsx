@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react'
 import { STICKER_COLORS } from './colors'
 
-// Top-left (row, col) of each face in a 9-row x 12-col grid (unfolded cross).
+// Top-left (row, col) of each face in the unfolded cross, measured in faces.
 const FACE_OFFSET: Record<string, [number, number]> = {
-  U: [0, 3],
-  L: [3, 0],
-  F: [3, 3],
-  R: [3, 6],
-  B: [3, 9],
-  D: [6, 3],
+  U: [0, 1],
+  L: [1, 0],
+  F: [1, 1],
+  R: [1, 2],
+  B: [1, 3],
+  D: [2, 1],
 }
 
 interface CubeNetProps {
@@ -16,25 +16,30 @@ interface CubeNetProps {
   cell?: number
 }
 
-export function CubeNet({ net, cell = 26 }: CubeNetProps) {
+export function CubeNet({ net, cell }: CubeNetProps) {
+  // The size is whatever the backend sent: 9, 16 or 25 stickers per face.
+  const perFace = net.U?.length ?? 9
+  const n = Math.round(Math.sqrt(perFace))
+  // Keep the whole net a similar width on screen as the cube grows, so a 5x5
+  // still fits a phone.
+  const px = cell ?? Math.max(12, Math.round(78 / n))
+
   const cells: ReactNode[] = []
-  for (const [face, [rowStart, colStart]] of Object.entries(FACE_OFFSET)) {
+  for (const [face, [faceRow, faceCol]] of Object.entries(FACE_OFFSET)) {
     const colors = net[face] ?? []
-    for (let i = 0; i < 9; i++) {
-      const r = Math.floor(i / 3)
-      const c = i % 3
+    for (let i = 0; i < perFace; i++) {
       cells.push(
         <div
           key={`${face}-${i}`}
           title={face}
           style={{
-            gridRow: rowStart + r + 1,
-            gridColumn: colStart + c + 1,
+            gridRow: faceRow * n + Math.floor(i / n) + 1,
+            gridColumn: faceCol * n + (i % n) + 1,
             background: STICKER_COLORS[colors[i]] ?? '#444',
-            width: cell,
-            height: cell,
+            width: px,
+            height: px,
             border: '1px solid #1c1c1c',
-            borderRadius: 3,
+            borderRadius: n > 3 ? 2 : 3,
             boxSizing: 'border-box',
           }}
         />,
@@ -46,10 +51,11 @@ export function CubeNet({ net, cell = 26 }: CubeNetProps) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(12, ${cell}px)`,
-        gridTemplateRows: `repeat(9, ${cell}px)`,
-        gap: 2,
+        gridTemplateColumns: `repeat(${4 * n}, ${px}px)`,
+        gridTemplateRows: `repeat(${3 * n}, ${px}px)`,
+        gap: n > 3 ? 1 : 2,
         justifyContent: 'center',
+        maxWidth: '100%',
       }}
     >
       {cells}

@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getNet,
+  getScheme,
   getScramble,
   getTrace,
   validateMemo,
+  type OrbitInfo,
+  type SchemeResponse,
+  type Targets,
   type TraceResponse,
   type ValidateResponse,
 } from '../api/client'
 import { CubeNet } from '../cube/CubeNet'
 import { chunkPairs, wordIndex, type Lexicon } from '../lexicon'
+import { buffersFor } from '../settings'
 import type { ModeProps } from './types'
 
 const WORDS_KEY = 'bld-trainer-type-words'
@@ -49,25 +54,38 @@ function asWords(letters: string[], lexicon: Lexicon): string {
     .join(', ')
 }
 
+const PLACEHOLDER: Record<string, [string, string]> = {
+  corner: ['e.g. FM BP LH', 'e.g. FM radio, blood pressure'],
+  edge: ['e.g. UF DK WC', 'e.g. lighthouse, vow'],
+  wing: ['e.g. QT NP AB', 'e.g. lighthouse, vow'],
+  xcenter: ['e.g. AD BE CF', 'e.g. lighthouse, vow'],
+  tcenter: ['e.g. AD BE CF', 'e.g. lighthouse, vow'],
+}
+
 export function TypeLettersMode({ settings, lexicon }: ModeProps) {
   // `moves` is the segment to apply right now; `full` is the whole sequence
   // from solved, which is what the cube logic on the server needs.
   const [moves, setMoves] = useState<string[] | null>(null)
   const [continued, setContinued] = useState(false)
   const [net, setNet] = useState<Record<string, string[]> | null>(null)
+  const [scheme, setScheme] = useState<SchemeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [cornerInput, setCornerInput] = useState('')
-  const [edgeInput, setEdgeInput] = useState('')
+  const [inputs, setInputs] = useState<Record<string, string>>({})
   const [result, setResult] = useState<ValidateResponse | null>(null)
   const [answer, setAnswer] = useState<TraceResponse | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [running, setRunning] = useState(false)
   const [useWords, setUseWords] = useState(() => localStorage.getItem(WORDS_KEY) === '1')
   const startRef = useRef(0)
-  const cornerRef = useRef<HTMLInputElement>(null)
+  const firstRef = useRef<HTMLInputElement>(null)
   const fullRef = useRef<string[] | null>(null)
 
   const index = useMemo(() => wordIndex(lexicon), [lexicon])
+  const size = settings.size
+  const buffers = useMemo(() => buffersFor(settings), [settings])
+  // Which orbits to ask for comes from the backend, so a 4x4 shows wings and
+  // centres without the frontend knowing what a 4x4 has.
+  const orbits: OrbitInfo[] = scheme?.size === size ? scheme.orbits : []
 
   useEffect(() => {
     if (!running) return
@@ -83,6 +101,12 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
     }
   }, [useWords])
 
+  useEffect(() => {
+    getScheme(size)
+      .then(setScheme)
+      .catch(() => {})
+  }, [size])
+
   // continueFrom = true keeps the cube where it is and scrambles on top of it,
   // so a rep can start the moment the letters are typed — no solve in between.
   const newScramble = useCallback(
@@ -91,10 +115,9 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
       setError(null)
       setResult(null)
       setAnswer(null)
-      setCornerInput('')
-      setEdgeInput('')
+      setInputs({})
       try {
-        const s = await getScramble(20, settings.topColor, settings.frontColor, prefix)
+        const s = await getScramble(settings.topColor, settings.frontColor, prefix, size)
         fullRef.current = s.full
         setMoves(s.scramble)
         setContinued(prefix.length > 0)
@@ -102,55 +125,56 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
         startRef.current = performance.now()
         setElapsed(0)
         setRunning(true)
-        cornerRef.current?.focus()
+        firstRef.current?.focus()
       } catch {
         setError('Cannot reach the backend. Is the API server running on port 8000?')
         setRunning(false)
       }
     },
-    [settings.topColor, settings.frontColor],
+    [settings.topColor, settings.frontColor, size],
   )
 
-  // Fetch one scramble on mount.
+  // A new size means a different cube, so start over rather than reinterpret
+  // the old scramble.
   useEffect(() => {
+    fullRef.current = null
     void newScramble()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [size])
 
   // Recolor the current scramble's net when orientation changes (no new scramble).
   useEffect(() => {
     const full = fullRef.current
     if (!full) return
-    getNet(full, settings.topColor, settings.frontColor)
+    getNet(full, settings.topColor, settings.frontColor, size)
       .then((r) => setNet(r.net))
       .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.topColor, settings.frontColor])
 
   async function submit() {
     const full = fullRef.current
     if (!full) return
-    let corners: string[]
-    let edges: string[]
-    if (useWords) {
-      const c = parseWords(cornerInput, index)
-      const e = parseWords(edgeInput, index)
-      const missing = [...c.unknown, ...e.unknown]
-      if (missing.length) {
-        setError(`Not in your sheet: ${missing.join(', ')}`)
-        return
+    const targets: Targets = {}
+    const missing: string[] = []
+    for (const orbit of orbits) {
+      const raw = inputs[orbit.kind] ?? ''
+      if (useWords) {
+        const parsed = parseWords(raw, index)
+        missing.push(...parsed.unknown)
+        targets[orbit.kind] = parsed.letters
+      } else {
+        targets[orbit.kind] = parseLetters(raw)
       }
-      corners = c.letters
-      edges = e.letters
-    } else {
-      corners = parseLetters(cornerInput)
-      edges = parseLetters(edgeInput)
+    }
+    if (missing.length) {
+      setError(`Not in your sheet: ${missing.join(', ')}`)
+      return
     }
     setError(null)
     setRunning(false)
     try {
-      setResult(
-        await validateMemo(full, corners, edges, settings.cornerBuffer, settings.edgeBuffer),
-      )
+      setResult(await validateMemo(full, targets, buffers, size))
     } catch {
       setError('Validation request failed.')
     }
@@ -160,7 +184,7 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
     const full = fullRef.current
     if (!full) return
     try {
-      setAnswer(await getTrace(full, settings.cornerBuffer, settings.edgeBuffer))
+      setAnswer(await getTrace(full, buffers, size))
     } catch {
       setError('Trace request failed.')
     }
@@ -191,7 +215,11 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
           answer with words
         </label>
         <span className="buffers">
-          buffers — corner <b>{settings.cornerBuffer}</b>, edge <b>{settings.edgeBuffer}</b>
+          {orbits.map((o) => (
+            <span key={o.kind}>
+              {o.title.toLowerCase()} <b>{buffers[o.kind] ?? o.default_buffer}</b>{' '}
+            </span>
+          ))}
         </span>
       </div>
 
@@ -208,32 +236,25 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
           <CubeNet net={net} />
 
           <div className="inputs">
-            <label>
-              Corners
-              <input
-                ref={cornerRef}
-                className={useWords ? 'words' : ''}
-                value={cornerInput}
-                onChange={(e) => setCornerInput(e.target.value)}
-                placeholder={useWords ? 'e.g. FM radio, blood pressure' : 'e.g. FM BP LH'}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-            <label>
-              Edges
-              <input
-                className={useWords ? 'words' : ''}
-                value={edgeInput}
-                onChange={(e) => setEdgeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void submit()
-                }}
-                placeholder={useWords ? 'e.g. lighthouse, vow' : 'e.g. UF DK WC'}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
+            {orbits.map((orbit, i) => (
+              <label key={orbit.kind}>
+                {orbit.title}
+                <input
+                  ref={i === 0 ? firstRef : undefined}
+                  className={useWords ? 'words' : ''}
+                  value={inputs[orbit.kind] ?? ''}
+                  onChange={(e) =>
+                    setInputs((prev) => ({ ...prev, [orbit.kind]: e.target.value }))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && i === orbits.length - 1) void submit()
+                  }}
+                  placeholder={PLACEHOLDER[orbit.kind]?.[useWords ? 1 : 0] ?? ''}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </label>
+            ))}
           </div>
 
           <div className="actions">
@@ -251,8 +272,10 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
                 <>✓ Solved! ({elapsed.toFixed(1)}s)</>
               ) : (
                 <>
-                  ✗ Not solved — corners {result.corners_solved ? '✓' : '✗'}, edges{' '}
-                  {result.edges_solved ? '✓' : '✗'}
+                  ✗ Not solved —{' '}
+                  {orbits
+                    .map((o) => `${o.title.toLowerCase()} ${result.by_orbit[o.kind] ? '✓' : '✗'}`)
+                    .join(', ')}
                 </>
               )}
             </div>
@@ -260,18 +283,20 @@ export function TypeLettersMode({ settings, lexicon }: ModeProps) {
 
           {answer && (
             <div className="answer">
-              <div>
-                <span className="answer-label">Corners:</span> {answer.corners.join(' ') || '—'}
-              </div>
-              {useWords && answer.corners.length > 0 && (
-                <div className="answer-words">{asWords(answer.corners, lexicon)}</div>
-              )}
-              <div>
-                <span className="answer-label">Edges:</span> {answer.edges.join(' ') || '—'}
-              </div>
-              {useWords && answer.edges.length > 0 && (
-                <div className="answer-words">{asWords(answer.edges, lexicon)}</div>
-              )}
+              {orbits.map((orbit) => {
+                const targets = answer.targets[orbit.kind] ?? []
+                return (
+                  <div key={orbit.kind}>
+                    <div>
+                      <span className="answer-label">{orbit.title}:</span>{' '}
+                      {targets.join(' ') || '—'}
+                    </div>
+                    {useWords && targets.length > 0 && (
+                      <div className="answer-words">{asWords(targets, lexicon)}</div>
+                    )}
+                  </div>
+                )
+              })}
               <div className="parity">parity: {answer.parity ? 'yes' : 'no'}</div>
             </div>
           )}

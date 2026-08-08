@@ -1,5 +1,13 @@
-import type { SchemeResponse } from '../api/client'
-import { COLOR_LIST, OPPOSITE, type Settings } from '../settings'
+import type { CubeSize, SchemeResponse } from '../api/client'
+import {
+  buffersFor,
+  COLOR_LIST,
+  CUBE_SIZES,
+  OPPOSITE,
+  SIZE_LABEL,
+  withBuffer,
+  type Settings,
+} from '../settings'
 
 interface SettingsPanelProps {
   settings: Settings
@@ -20,40 +28,44 @@ export function SettingsPanel({ settings, scheme, onChange }: SettingsPanelProps
     onChange({ topColor: top, frontColor: front })
   }
 
-  const cornerOpts = scheme?.corners ?? [{ letter: settings.cornerBuffer, piece: '?', sticker: '?' }]
-  const edgeOpts = scheme?.edges ?? [{ letter: settings.edgeBuffer, piece: '?', sticker: '?' }]
+  // One buffer picker per orbit the cube actually has, as the backend reports
+  // them — so a 4x4 offers wings and centres, and never midges.
+  const active = buffersFor(settings)
+  const orbits = scheme?.size === settings.size ? scheme.orbits : []
 
   return (
     <details className="settings">
-      <summary>Settings — buffers &amp; orientation</summary>
+      <summary>Settings — cube, buffers &amp; orientation</summary>
       <div className="settings-grid">
         <label>
-          Corner buffer
+          Cube
           <select
-            value={settings.cornerBuffer}
-            onChange={(e) => onChange({ cornerBuffer: e.target.value })}
+            value={settings.size}
+            onChange={(e) => onChange({ size: Number(e.target.value) as CubeSize })}
           >
-            {cornerOpts.map((c) => (
-              <option key={c.letter} value={c.letter}>
-                {c.letter} — {c.piece} ({c.sticker})
+            {CUBE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {SIZE_LABEL[s]}
               </option>
             ))}
           </select>
         </label>
 
-        <label>
-          Edge buffer
-          <select
-            value={settings.edgeBuffer}
-            onChange={(e) => onChange({ edgeBuffer: e.target.value })}
-          >
-            {edgeOpts.map((c) => (
-              <option key={c.letter} value={c.letter}>
-                {c.letter} — {c.piece} ({c.sticker})
-              </option>
-            ))}
-          </select>
-        </label>
+        {orbits.map((orbit) => (
+          <label key={orbit.kind}>
+            {orbit.title} buffer
+            <select
+              value={active[orbit.kind] ?? orbit.default_buffer}
+              onChange={(e) => onChange(withBuffer(settings, orbit.kind, e.target.value))}
+            >
+              {orbit.labels.map((l) => (
+                <option key={l.letter} value={l.letter}>
+                  {l.letter} — {l.piece} ({l.sticker})
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
 
         <label>
           Top color

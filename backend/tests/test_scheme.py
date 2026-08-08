@@ -10,10 +10,11 @@ _DIR = SC._DIR
 
 
 def _pos(cubie):
+    # Cubie names give unit steps; layers live at +/- OUTER on the model's grid.
     return (
-        sum(_DIR[c][0] for c in cubie),
-        sum(_DIR[c][1] for c in cubie),
-        sum(_DIR[c][2] for c in cubie),
+        S.OUTER * sum(_DIR[c][0] for c in cubie),
+        S.OUTER * sum(_DIR[c][1] for c in cubie),
+        S.OUTER * sum(_DIR[c][2] for c in cubie),
     )
 
 

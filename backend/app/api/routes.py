@@ -7,11 +7,12 @@ from app.cube import scheme as SC
 from app.cube import state as S
 from app.cube.net import COLORS, face_colors, net_colors
 from app.cube.scramble import generate_scramble
-from app.cube.tracer import trace
-from app.cube.validator import validate as validate_memo
+from app.cube.tracer import trace_cube
+from app.cube.validator import validate_cube
 from app.models.schemas import (
     NetRequest,
     NetResponse,
+    OrbitInfo,
     SchemeResponse,
     ScrambleRequest,
     ScrambleResponse,
@@ -30,41 +31,66 @@ def health() -> dict[str, str]:
 
 
 @router.get("/scheme", response_model=SchemeResponse)
-def get_scheme() -> SchemeResponse:
+def get_scheme(size: int = 3) -> SchemeResponse:
+    if size not in (3, 4, 5):
+        raise HTTPException(status_code=400, detail="size must be 3, 4 or 5")
+    cube = S.model(size)
+    orbits = [
+        OrbitInfo(
+            kind=kind,
+            title=orbit.title,
+            default_buffer=orbit.default_buffer,
+            labels=orbit.labels(cube),
+        )
+        for kind, orbit in SC.ORBITS[size].items()
+    ]
     return SchemeResponse(
+        size=size,
+        orbits=orbits,
+        colors=COLORS,
         corners=SC.corner_labels(),
         edges=SC.edge_labels(),
-        colors=COLORS,
     )
 
 
 @router.post("/scramble", response_model=ScrambleResponse)
 def post_scramble(req: ScrambleRequest) -> ScrambleResponse:
-    moves = generate_scramble(length=req.length, prefix=req.prefix)
+    moves = generate_scramble(length=req.length, prefix=req.prefix, n=req.size)
     full = req.prefix + moves
-    state = S.scramble_state(full)
+    state = S.model(req.size).scramble_state(full)
     fc = face_colors(req.top_color, req.front_color)
+    buffers = req.resolved_buffers()
     return ScrambleResponse(
         scramble=moves,
         full=full,
-        net=net_colors(state, fc),
-        corner_buffer=req.corner_buffer,
-        edge_buffer=req.edge_buffer,
+        net=net_colors(state, fc, req.size),
+        size=req.size,
+        buffers=buffers,
+        corner_buffer=buffers.get("corner", req.corner_buffer),
+        edge_buffer=buffers.get("edge", req.edge_buffer),
     )
 
 
 @router.post("/net", response_model=NetResponse)
 def post_net(req: NetRequest) -> NetResponse:
-    state = S.scramble_state(req.scramble)
+    state = S.model(req.size).scramble_state(req.scramble)
     fc = face_colors(req.top_color, req.front_color)
-    return NetResponse(net=net_colors(state, fc))
+    return NetResponse(net=net_colors(state, fc, req.size), size=req.size)
 
 
 @router.post("/trace", response_model=TraceResponse)
 def post_trace(req: TraceRequest) -> TraceResponse:
-    state = S.scramble_state(req.scramble)
-    memo = trace(state, req.corner_buffer, req.edge_buffer)
-    return TraceResponse(corners=memo.corners, edges=memo.edges, parity=memo.parity)
+    state = S.model(req.size).scramble_state(req.scramble)
+    memo = trace_cube(state, req.size, req.resolved_buffers())
+    return TraceResponse(
+        targets=memo.targets,
+        buffers=memo.buffers,
+        parity=memo.parity,
+        parity_by_orbit={k: memo.orbit_parity(k) for k in memo.targets},
+        size=req.size,
+        corners=memo.corners,
+        edges=memo.edges,
+    )
 
 
 # --- Letter-pair images ------------------------------------------------------
@@ -113,12 +139,14 @@ def del_image(pair: str) -> dict[str, bool]:
 
 @router.post("/validate", response_model=ValidateResponse)
 def post_validate(req: ValidateRequest) -> ValidateResponse:
-    state = S.scramble_state(req.scramble)
-    verdict = validate_memo(
-        state, req.corner_targets, req.edge_targets, req.corner_buffer, req.edge_buffer
+    state = S.model(req.size).scramble_state(req.scramble)
+    verdict = validate_cube(
+        state, req.resolved_targets(), req.size, req.resolved_buffers()
     )
     return ValidateResponse(
         solved=verdict.solved,
+        by_orbit=verdict.by_orbit,
+        size=req.size,
         corners_solved=verdict.corners_solved,
         edges_solved=verdict.edges_solved,
     )

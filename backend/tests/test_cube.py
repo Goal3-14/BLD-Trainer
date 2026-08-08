@@ -76,11 +76,11 @@ def test_corner_edge_parity_equal():
 
 
 def _top_row_color(st, face_normal):
-    """Color now showing on the top (y==1) stickers of the given side face."""
+    """Color now showing on the top (y == OUTER) stickers of the given side face."""
     colors = {
         S.FACELETS[st[i]].color
         for i, f in enumerate(S.FACELETS)
-        if f.normal == face_normal and f.pos[1] == 1
+        if f.normal == face_normal and f.pos[1] == S.OUTER
     }
     assert len(colors) == 1, colors
     return colors.pop()

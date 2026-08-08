@@ -1,9 +1,9 @@
-"""3x3 cube state model.
+"""N x N x N cube state model (3x3, 4x4, 5x5).
 
-Facelet-permutation model derived from cube geometry. The 18 face moves are
-generated once from spatial rotations, so the move tables are correct *by
-construction* rather than hand-transcribed. Correctness is locked down by the
-invariant + ground-truth tests in ``tests/test_cube.py``.
+Facelet-permutation model derived from cube geometry. Moves are generated once
+from spatial rotations, so the move tables are correct *by construction* rather
+than hand-transcribed. Correctness is locked down by the invariant + ground-truth
+tests in ``tests/test_cube.py``.
 
 Coordinate system (right-handed):
 
@@ -11,13 +11,26 @@ Coordinate system (right-handed):
     +Y = U (white)   -Y = D (yellow)
     +Z = F (green)   -Z = B (blue)
 
-A *facelet* is a single colored sticker on a corner or edge cubie, identified
-by its cubie position ``pos`` and outward ``normal`` (both in {-1,0,1}^3).
-Centers are fixed under face moves and are not part of the movable state.
+Layers sit at the odd integers ``2i - (n-1)``, so the outer layer is at
+``|c| == n-1`` and a middle layer (``c == 0``) exists only for odd ``n``. That
+one fact decides which pieces a cube has:
 
-State representation: a tuple of length 48. ``state[p]`` is the id of the
-solved-sticker currently occupying facelet position ``p``. The solved state is
-``(0, 1, ..., 47)``.
+    corner   3 outer coords
+    edge     2 outer + a zero        (the 3x3 edge; the 5x5 "midge")
+    wing     2 outer + 1 inner       (4x4 and 5x5 only)
+    xcenter  1 outer + 2 inner       (4x4 and 5x5; the 4x4 "centre")
+    tcenter  1 outer + 1 inner + 1 zero   (5x5 only)
+    center   1 outer + 2 zeros       (fixed; never moves, so not tracked)
+
+So 4x4 has no edges, t-centres or fixed centres because an even cube has no
+zero coordinate — they are not removed, they cannot exist.
+
+Fixed centres are excluded from the state everywhere: under face and wide moves
+they never move, on any size. That keeps the 3x3 state at 48 facelets.
+
+A *facelet* is a single coloured sticker, identified by its cubie position
+``pos`` and outward ``normal``. ``state[p]`` is the id of the solved-sticker
+currently occupying facelet position ``p``; the solved state is ``(0, 1, ...)``.
 """
 from __future__ import annotations
 
@@ -45,6 +58,10 @@ NORMAL_TO_FACE: dict[Vec, str] = {v: k for k, v in FACE_NORMALS.items()}
 
 FACE_ORDER = "UDFBRL"
 
+# Facelet blocks are laid out in this order. Corners then edges first, so the
+# 3x3 ids are exactly what they were before the model was generalised.
+KIND_ORDER = ("corner", "edge", "wing", "xcenter", "tcenter")
+
 
 def _rotate(v: Vec, axis: int, quarter: int) -> Vec:
     """Rotate ``v`` by ``quarter`` * 90 degrees (right-hand rule) about a coordinate axis."""
@@ -59,66 +76,237 @@ def _rotate(v: Vec, axis: int, quarter: int) -> Vec:
     return (x, y, z)
 
 
+def clockwise_quarter(face: str) -> tuple[int, int]:
+    """(axis, quarter) for a clockwise turn of ``face`` seen from outside it.
+
+    The single source of this convention: the move tables use it, and so does
+    wing lettering, whose chirality is defined as "clockwise about the face".
+    """
+    normal = FACE_NORMALS[face]
+    axis = next(i for i in range(3) if normal[i] != 0)
+    return axis, -normal[axis]
+
+
+def rotate(v: Vec, axis: int, quarter: int) -> Vec:
+    return _rotate(v, axis, quarter)
+
+
 @dataclass(frozen=True)
 class Facelet:
     pos: Vec  # cubie position
     normal: Vec  # outward sticker normal
-    kind: str  # "corner" | "edge"
+    kind: str  # one of KIND_ORDER
     color: str  # solved color
 
 
-def _build_facelets() -> list[Facelet]:
-    """All 48 movable facelets: 24 corner-stickers, then 24 edge-stickers."""
-    corners: list[Facelet] = []
-    edges: list[Facelet] = []
-    for x in (-1, 0, 1):
-        for y in (-1, 0, 1):
-            for z in (-1, 0, 1):
-                pos = (x, y, z)
-                nonzero = [c for c in pos if c != 0]
-                if len(nonzero) < 2:
-                    continue  # core or center -> not movable
-                kind = "corner" if len(nonzero) == 3 else "edge"
-                bucket = corners if kind == "corner" else edges
-                for axis in range(3):
-                    if pos[axis] != 0:
-                        normal: Vec = tuple(pos[axis] if i == axis else 0 for i in range(3))  # type: ignore[assignment]
-                        color = FACE_COLORS[NORMAL_TO_FACE[normal]]
-                        bucket.append(Facelet(pos, normal, kind, color))
-    return corners + edges
+def _dot3(a: Vec, b: Vec) -> int:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
-FACELETS: list[Facelet] = _build_facelets()
-N: int = len(FACELETS)
-_INDEX: dict[tuple[Vec, Vec], int] = {(f.pos, f.normal): i for i, f in enumerate(FACELETS)}
-
-CORNER_IDS: list[int] = [i for i, f in enumerate(FACELETS) if f.kind == "corner"]
-EDGE_IDS: list[int] = [i for i, f in enumerate(FACELETS) if f.kind == "edge"]
-
-SOLVED: tuple[int, ...] = tuple(range(N))
+def _cross3(a: Vec, b: Vec) -> Vec:
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
 
 
-def facelet_id(pos: Vec, normal: Vec) -> int:
-    """Engine facelet id for the sticker at cubie position ``pos`` with outward ``normal``."""
-    return _INDEX[(pos, normal)]
+class CubeModel:
+    """Geometry, move tables and cubie views for one cube size."""
 
+    def __init__(self, n: int) -> None:
+        if n < 3:
+            raise ValueError("cube size must be at least 3")
+        self.n = n
+        self.outer = n - 1
+        self.coords: tuple[int, ...] = tuple(2 * i - (n - 1) for i in range(n))
+        # Widest turn worth having: 3x3 needs only outer turns, bigger cubes add
+        # the two-layer wide turn. A three-layer turn on 5x5 is the same state as
+        # a two-layer turn from the far side, so it buys nothing.
+        self.max_depth = 1 if n == 3 else 2
 
-def _base_move_perm(face: str) -> list[int]:
-    """Destination permutation for a clockwise quarter turn of ``face``.
+        self.facelets: list[Facelet] = self._build_facelets()
+        self.N = len(self.facelets)
+        self._index: dict[tuple[Vec, Vec], int] = {
+            (f.pos, f.normal): i for i, f in enumerate(self.facelets)
+        }
+        self.SOLVED: tuple[int, ...] = tuple(range(self.N))
+        self.ids_by_kind: dict[str, list[int]] = {
+            k: [i for i, f in enumerate(self.facelets) if f.kind == k] for k in KIND_ORDER
+        }
+        self.MOVES: dict[str, list[int]] = self._build_moves()
 
-    ``dst[i]`` = the facelet position that the sticker currently at ``i`` moves to.
-    """
-    normal = FACE_NORMALS[face]
-    axis = next(i for i in range(3) if normal[i] != 0)
-    layer_sign = normal[axis]
-    quarter = -layer_sign  # clockwise as viewed from outside the face
-    dst = list(range(N))
-    for i, f in enumerate(FACELETS):
-        if f.pos[axis] == layer_sign:
-            new_pos = _rotate(f.pos, axis, quarter)
-            new_normal = _rotate(f.normal, axis, quarter)
-            dst[i] = _INDEX[(new_pos, new_normal)]
-    return dst
+        self.facelets_at: dict[Vec, list[int]] = {}
+        for i, f in enumerate(self.facelets):
+            self.facelets_at.setdefault(f.pos, []).append(i)
+        self.positions_by_kind: dict[str, list[Vec]] = {}
+        for k in KIND_ORDER:
+            seen: list[Vec] = []
+            for i in self.ids_by_kind[k]:
+                if self.facelets[i].pos not in seen:
+                    seen.append(self.facelets[i].pos)
+            self.positions_by_kind[k] = seen
+
+        self.cubie_of: list[Vec] = [f.pos for f in self.facelets]
+        self.cubie_stickers: dict[Vec, tuple[int, ...]] = {
+            pos: self._cw_order(pos) for pos in self.facelets_at
+        }
+
+        # Colour signatures identify a piece only where its colours are unique:
+        # true for corners and edges, false for wings (two wings share a colour
+        # pair) and centres (four share a colour).
+        self.sig_by_kind: dict[str, dict[frozenset[str], int]] = {}
+        for k in ("corner", "edge"):
+            positions = self.positions_by_kind[k]
+            sig = {
+                frozenset(self.facelets[i].color for i in self.facelets_at[pos]): idx
+                for idx, pos in enumerate(positions)
+            }
+            if len(sig) == len(positions):
+                self.sig_by_kind[k] = sig
+
+    # --- construction --------------------------------------------------------
+
+    def _classify(self, pos: Vec) -> str | None:
+        outer = sum(1 for c in pos if abs(c) == self.outer)
+        zeros = sum(1 for c in pos if c == 0)
+        if outer == 3:
+            return "corner"
+        if outer == 2:
+            return "edge" if zeros == 1 else "wing"
+        if outer == 1:
+            if zeros == 2:
+                return None  # fixed centre: never moves, not part of the state
+            return "tcenter" if zeros == 1 else "xcenter"
+        return None  # interior
+
+    def _build_facelets(self) -> list[Facelet]:
+        buckets: dict[str, list[Facelet]] = {k: [] for k in KIND_ORDER}
+        for x in self.coords:
+            for y in self.coords:
+                for z in self.coords:
+                    pos: Vec = (x, y, z)
+                    kind = self._classify(pos)
+                    if kind is None:
+                        continue
+                    for axis in range(3):
+                        if abs(pos[axis]) == self.outer:
+                            normal: Vec = tuple(  # type: ignore[assignment]
+                                (1 if pos[axis] > 0 else -1) if i == axis else 0
+                                for i in range(3)
+                            )
+                            color = FACE_COLORS[NORMAL_TO_FACE[normal]]
+                            buckets[kind].append(Facelet(pos, normal, kind, color))
+        return [f for k in KIND_ORDER for f in buckets[k]]
+
+    def _move_perm(self, face: str, depth: int) -> list[int]:
+        """Destination permutation for a clockwise quarter turn of the outermost
+        ``depth`` layers of ``face``. ``dst[i]`` is where the sticker at ``i`` goes."""
+        normal = FACE_NORMALS[face]
+        axis = next(i for i in range(3) if normal[i] != 0)
+        layer_sign = normal[axis]
+        quarter = -layer_sign  # clockwise as viewed from outside the face
+        cutoff = self.outer - 2 * (depth - 1)
+        dst = list(range(self.N))
+        for i, f in enumerate(self.facelets):
+            if layer_sign * f.pos[axis] >= cutoff:
+                new_pos = _rotate(f.pos, axis, quarter)
+                new_normal = _rotate(f.normal, axis, quarter)
+                dst[i] = self._index[(new_pos, new_normal)]
+        return dst
+
+    def _build_moves(self) -> dict[str, list[int]]:
+        moves: dict[str, list[int]] = {}
+        for face in FACE_ORDER:
+            for depth in range(1, self.max_depth + 1):
+                name = face if depth == 1 else face + "w"
+                base = self._move_perm(face, depth)
+                moves[name] = base
+                moves[name + "'"] = _invert(base)
+                moves[name + "2"] = _square(base)
+        return moves
+
+    def _cw_order(self, pos: Vec) -> tuple[int, ...]:
+        """A cubie's facelet ids. Corners: clockwise as seen from outside, so a
+        swap aligned by this order is a genuine piece rotation. Two-sticker and
+        one-sticker pieces: as found (relative order is immaterial)."""
+        fids = self.facelets_at[pos]
+        if len(fids) < 3:
+            return tuple(fids)
+        a, b, c = fids
+        na, nb = self.facelets[a].normal, self.facelets[b].normal
+        # Want a->b clockwise viewed from outside: (na x nb) . pos < 0; else swap.
+        if _dot3(_cross3(na, nb), pos) > 0:
+            b, c = c, b
+        return (a, b, c)
+
+    # --- operations ----------------------------------------------------------
+
+    def facelet_id(self, pos: Vec, normal: Vec) -> int:
+        return self._index[(pos, normal)]
+
+    def apply_move(self, state: tuple[int, ...], name: str) -> tuple[int, ...]:
+        perm = self.MOVES[name]
+        new = [0] * self.N
+        for i in range(self.N):
+            new[perm[i]] = state[i]
+        return tuple(new)
+
+    def apply_sequence(self, state: tuple[int, ...], moves: list[str]) -> tuple[int, ...]:
+        for m in moves:
+            state = self.apply_move(state, m)
+        return state
+
+    def scramble_state(self, moves: list[str]) -> tuple[int, ...]:
+        return self.apply_sequence(self.SOLVED, moves)
+
+    def is_solved(self, state: tuple[int, ...]) -> bool:
+        """Solved means every sticker shows its home *colour*.
+
+        Not sticker identity: a 4x4's four same-colour centres are
+        interchangeable, so demanding each return to its exact slot would reject
+        genuinely solved cubes. On 3x3 the two tests agree, since a
+        colour-correct 3x3 is solved.
+        """
+        return all(self.facelets[state[i]].color == self.facelets[i].color
+                   for i in range(self.N))
+
+    def cubie_solved(self, w: list[int] | tuple[int, ...], pos: Vec) -> bool:
+        """Every sticker of this cubie shows its home colour.
+
+        Per *cubie*, never per sticker: one white sticker sitting in another
+        white sticker's slot is not a solved corner. Per cubie it is exactly
+        right on every kind — and it is what makes a 4x4's identical wings and
+        centres interchangeable, since swapping two of them is invisible.
+        """
+        return all(self.facelets[w[f]].color == self.facelets[f].color
+                   for f in self.facelets_at[pos])
+
+    def orbit_solved(self, w: list[int] | tuple[int, ...], kind: str) -> bool:
+        return all(self.cubie_solved(w, pos) for pos in self.positions_by_kind[kind])
+
+    def piece_permutation(self, state: tuple[int, ...], kind: str) -> list[int]:
+        """Map each home cubie slot -> index of the piece now occupying it.
+        Only defined where colour signatures identify a piece (corners, edges)."""
+        sig = self.sig_by_kind[kind]
+        perm: list[int] = []
+        for pos in self.positions_by_kind[kind]:
+            colors = frozenset(self.facelets[state[i]].color for i in self.facelets_at[pos])
+            perm.append(sig[colors])
+        return perm
+
+    def piece_swap(self, w: list[int], buffer_fid: int, target_fid: int) -> None:
+        """The elementary BLD 'shot': swap the whole piece at the buffer with the
+        piece at the target sticker, aligning buffer->target and following each
+        cubie's sticker order. Moves all of a piece's stickers together with the
+        correct orientation, so one shot places a whole piece."""
+        b_order = self.cubie_stickers[self.cubie_of[buffer_fid]]
+        t_order = self.cubie_stickers[self.cubie_of[target_fid]]
+        bi = b_order.index(buffer_fid)
+        ti = t_order.index(target_fid)
+        k = len(b_order)
+        for j in range(k):
+            b = b_order[(bi + j) % k]
+            t = t_order[(ti + j) % k]
+            w[b], w[t] = w[t], w[b]
 
 
 def _invert(perm: list[int]) -> list[int]:
@@ -130,95 +318,6 @@ def _invert(perm: list[int]) -> list[int]:
 
 def _square(perm: list[int]) -> list[int]:
     return [perm[perm[i]] for i in range(len(perm))]
-
-
-MOVES: dict[str, list[int]] = {}
-for _face in FACE_ORDER:
-    _base = _base_move_perm(_face)
-    MOVES[_face] = _base
-    MOVES[_face + "'"] = _invert(_base)
-    MOVES[_face + "2"] = _square(_base)
-
-
-def apply_move(state: tuple[int, ...], name: str) -> tuple[int, ...]:
-    perm = MOVES[name]
-    new = [0] * N
-    for i in range(N):
-        new[perm[i]] = state[i]
-    return tuple(new)
-
-
-def apply_sequence(state: tuple[int, ...], moves: list[str]) -> tuple[int, ...]:
-    for m in moves:
-        state = apply_move(state, m)
-    return state
-
-
-def scramble_state(moves: list[str]) -> tuple[int, ...]:
-    """Apply a move sequence to the solved cube."""
-    return apply_sequence(SOLVED, moves)
-
-
-def is_solved(state: tuple[int, ...]) -> bool:
-    return tuple(state) == SOLVED
-
-
-def invert_move(name: str) -> str:
-    if name.endswith("2"):
-        return name
-    if name.endswith("'"):
-        return name[:-1]
-    return name + "'"
-
-
-def invert_sequence(moves: list[str]) -> list[str]:
-    return [invert_move(m) for m in reversed(moves)]
-
-
-# --- Cubie-level views (for invariants and, later, tracing) -------------------
-
-def _cubie_positions(kind: str) -> list[Vec]:
-    seen: list[Vec] = []
-    for f in FACELETS:
-        if f.kind == kind and f.pos not in seen:
-            seen.append(f.pos)
-    return seen
-
-
-CORNER_POS: list[Vec] = _cubie_positions("corner")
-EDGE_POS: list[Vec] = _cubie_positions("edge")
-
-# Each cubie is uniquely identified by the frozenset of its solved sticker colors.
-_FACELETS_AT: dict[Vec, list[int]] = {}
-for _i, _f in enumerate(FACELETS):
-    _FACELETS_AT.setdefault(_f.pos, []).append(_i)
-
-_CORNER_SIG: dict[frozenset[str], int] = {
-    frozenset(FACELETS[i].color for i in _FACELETS_AT[pos]): k
-    for k, pos in enumerate(CORNER_POS)
-}
-_EDGE_SIG: dict[frozenset[str], int] = {
-    frozenset(FACELETS[i].color for i in _FACELETS_AT[pos]): k
-    for k, pos in enumerate(EDGE_POS)
-}
-
-
-def _piece_permutation(state: tuple[int, ...], positions: list[Vec],
-                       sig: dict[frozenset[str], int]) -> list[int]:
-    """Map each home cubie slot -> index of the piece currently occupying it."""
-    perm: list[int] = []
-    for pos in positions:
-        colors = frozenset(FACELETS[state[i]].color for i in _FACELETS_AT[pos])
-        perm.append(sig[colors])
-    return perm
-
-
-def corner_permutation(state: tuple[int, ...]) -> list[int]:
-    return _piece_permutation(state, CORNER_POS, _CORNER_SIG)
-
-
-def edge_permutation(state: tuple[int, ...]) -> list[int]:
-    return _piece_permutation(state, EDGE_POS, _EDGE_SIG)
 
 
 def permutation_parity(perm: list[int]) -> int:
@@ -238,50 +337,54 @@ def permutation_parity(perm: list[int]) -> int:
     return parity
 
 
-# --- Cubie sticker ordering + piece swap (for piece-level BLD operations) -----
-
-def _dot3(a: Vec, b: Vec) -> int:
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-
-
-def _cross3(a: Vec, b: Vec) -> Vec:
-    return (a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0])
+def invert_move(name: str) -> str:
+    if name.endswith("2"):
+        return name
+    if name.endswith("'"):
+        return name[:-1]
+    return name + "'"
 
 
-def _cw_order(pos: Vec) -> tuple[int, ...]:
-    """A cubie's facelet ids. Corners: clockwise as seen from outside, so a
-    swap aligned by this order is a genuine piece rotation. Edges: the two
-    stickers (relative order is immaterial)."""
-    fids = _FACELETS_AT[pos]
-    if len(fids) == 2:
-        return tuple(fids)
-    a, b, c = fids
-    na, nb = FACELETS[a].normal, FACELETS[b].normal
-    # Want a->b clockwise viewed from outside: (na x nb) . pos < 0; else swap.
-    if _dot3(_cross3(na, nb), pos) > 0:
-        b, c = c, b
-    return (a, b, c)
+def invert_sequence(moves: list[str]) -> list[str]:
+    return [invert_move(m) for m in reversed(moves)]
 
 
-CUBIE_OF: list[Vec] = [f.pos for f in FACELETS]
-CUBIE_STICKERS: dict[Vec, tuple[int, ...]] = {
-    pos: _cw_order(pos) for pos in (CORNER_POS + EDGE_POS)
-}
+MODELS: dict[int, CubeModel] = {n: CubeModel(n) for n in (3, 4, 5)}
 
 
-def piece_swap(w: list[int], buffer_fid: int, target_fid: int) -> None:
-    """The elementary BLD 'shot': swap the whole piece at the buffer with the
-    piece at the target sticker, aligning buffer->target and following each
-    cubie's sticker order. Moves all of a piece's stickers together with the
-    correct orientation, so one shot places a whole piece."""
-    b_order = CUBIE_STICKERS[CUBIE_OF[buffer_fid]]
-    t_order = CUBIE_STICKERS[CUBIE_OF[target_fid]]
-    bi = b_order.index(buffer_fid)
-    ti = t_order.index(target_fid)
-    n = len(b_order)
-    for k in range(n):
-        p = b_order[(bi + k) % n]
-        q = t_order[(ti + k) % n]
-        w[p], w[q] = w[q], w[p]
+def model(n: int = 3) -> CubeModel:
+    return MODELS[n]
+
+
+# --- 3x3 surface -------------------------------------------------------------
+# The rest of the engine is still 3x3-only, so the original module-level names
+# stay bound to the 3x3 model and behave exactly as before.
+
+CUBE3 = MODELS[3]
+
+FACELETS: list[Facelet] = CUBE3.facelets
+N: int = CUBE3.N
+OUTER: int = CUBE3.outer
+SOLVED: tuple[int, ...] = CUBE3.SOLVED
+MOVES: dict[str, list[int]] = CUBE3.MOVES
+CORNER_IDS: list[int] = CUBE3.ids_by_kind["corner"]
+EDGE_IDS: list[int] = CUBE3.ids_by_kind["edge"]
+CORNER_POS: list[Vec] = CUBE3.positions_by_kind["corner"]
+EDGE_POS: list[Vec] = CUBE3.positions_by_kind["edge"]
+CUBIE_OF: list[Vec] = CUBE3.cubie_of
+CUBIE_STICKERS: dict[Vec, tuple[int, ...]] = CUBE3.cubie_stickers
+
+facelet_id = CUBE3.facelet_id
+apply_move = CUBE3.apply_move
+apply_sequence = CUBE3.apply_sequence
+scramble_state = CUBE3.scramble_state
+is_solved = CUBE3.is_solved
+piece_swap = CUBE3.piece_swap
+
+
+def corner_permutation(state: tuple[int, ...]) -> list[int]:
+    return CUBE3.piece_permutation(state, "corner")
+
+
+def edge_permutation(state: tuple[int, ...]) -> list[int]:
+    return CUBE3.piece_permutation(state, "edge")

@@ -52,12 +52,14 @@ function App() {
     }
   }, [activeId])
 
+  // Refetch when the cube size changes: which orbits exist, and so which
+  // buffers can be picked, depends on it.
   useEffect(() => {
     if (DRILLS_ONLY) return
-    getScheme()
+    getScheme(settings.size)
       .then(setScheme)
       .catch(() => {})
-  }, [])
+  }, [settings.size])
 
   const updateSettings = (patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch }))
   const active = MODES.find((m) => m.id === activeId) ?? MODES[0]

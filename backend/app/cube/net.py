@@ -71,36 +71,44 @@ def face_colors(top: str = "white", front: str = "green") -> dict[str, str]:
     return fcmap
 
 
-def _build_layout() -> dict[str, list[list[int | None]]]:
+def _build_layout(cube: S.CubeModel = S.CUBE3) -> dict[str, list[list[int | None]]]:
+    """Per face: an n x n grid of facelet ids, row-major from the face's
+    top-left. None marks a fixed centre, which is not part of the state."""
+    n = cube.n
     layout: dict[str, list[list[int | None]]] = {
-        f: [[None, None, None], [None, None, None], [None, None, None]]
-        for f in S.FACE_NORMALS
+        f: [[None] * n for _ in range(n)] for f in S.FACE_NORMALS
     }
-    for fid, fl in enumerate(S.FACELETS):
+    for fid, fl in enumerate(cube.facelets):
         face = S.NORMAL_TO_FACE[fl.normal]
-        col = _dot(fl.pos, _RIGHT[face]) + 1
-        row = _dot(fl.pos, _DOWN[face]) + 1
+        # Layers sit at odd integers spanning +/- outer, so this maps a
+        # coordinate onto 0..n-1 for any cube size.
+        col = (_dot(fl.pos, _RIGHT[face]) + cube.outer) // 2
+        row = (_dot(fl.pos, _DOWN[face]) + cube.outer) // 2
         layout[face][row][col] = fid
     return layout
 
 
-# Per face: 3x3 grid of facelet ids; None marks the (fixed) center.
 NET_LAYOUT = _build_layout()
+_LAYOUTS: dict[int, dict[str, list[list[int | None]]]] = {
+    n: _build_layout(S.model(n)) for n in (3, 4, 5)
+}
 
 
 def net_colors(state: tuple[int, ...],
-               face_color: dict[str, str] | None = None) -> dict[str, list[str]]:
-    """Map each face to its 9 sticker colors (row-major) for an orientation."""
+               face_color: dict[str, str] | None = None,
+               n: int = 3) -> dict[str, list[str]]:
+    """Map each face to its n*n sticker colors (row-major) for an orientation."""
     fc = face_color or face_colors()
+    cube = S.model(n)
     out: dict[str, list[str]] = {}
     for face in FACE_NET_ORDER:
         cells: list[str] = []
-        for row in NET_LAYOUT[face]:
+        for row in _LAYOUTS[n][face]:
             for fid in row:
                 if fid is None:
-                    cells.append(fc[face])  # center
+                    cells.append(fc[face])  # fixed centre, not part of the state
                 else:
-                    solved_face = S.NORMAL_TO_FACE[S.FACELETS[state[fid]].normal]
+                    solved_face = S.NORMAL_TO_FACE[cube.facelets[state[fid]].normal]
                     cells.append(fc[solved_face])
         out[face] = cells
     return out
